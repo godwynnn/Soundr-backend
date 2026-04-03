@@ -34,9 +34,10 @@ class Song(models.Model):
     is_trending = models.BooleanField(default=False)
     total_play_count = models.PositiveIntegerField(default=0)
     hype_count = models.PositiveIntegerField(default=0)
-    embedding = VectorField(dimensions=768,null=True,
-        blank=True
-    )  # adjust to Gemini output size
+    # embedding = VectorField(dimensions=768,null=True,
+    #     blank=True
+    # )  # adjust to Gemini output size
+    embedding = VectorField(dimensions=3072, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
