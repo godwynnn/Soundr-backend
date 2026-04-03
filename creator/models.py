@@ -39,6 +39,8 @@ class Song(models.Model):
     )  # adjust to Gemini output size
     created_at = models.DateTimeField(auto_now_add=True)
 
+
+
     def build_embedding_text(self):
         return f"{self.title} is a {self.genre} song by {self.artist}"
 
