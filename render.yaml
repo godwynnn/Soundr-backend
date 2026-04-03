@@ -1,0 +1,12 @@
+services:
+  - type: web
+    plan: free
+    name: soundr
+    runtime: python
+    buildCommand: "./build.sh"
+    startCommand: "python -m daphne -b 0.0.0.0 -p $PORT core.wsgi:application"
+  
+    envVars:
+    - key: DJANGO_SETTINGS_MODULE
+      value: core.settings
+    
