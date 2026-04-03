@@ -131,17 +131,17 @@ def search_songs(request):
 
     vector_results = []
 
-    # ✅ Only attempt vector search if DB supports it
-    if settings.DATABASES['default']['ENGINE'] != 'django.db.backends.sqlite3' and vector_search_supported:
-        query_embedding = get_embedding(query)
-        vector_results = list(
-            Song.objects
-            .annotate(distance=CosineDistance("embedding", query_embedding))
-            .order_by("distance")
-        )
+    # # ✅ Only attempt vector search if DB supports it
+    # if settings.DATABASES['default']['ENGINE'] != 'django.db.backends.sqlite3' and vector_search_supported:
+    #     query_embedding = get_embedding(query)
+    #     vector_results = list(
+    #         Song.objects
+    #         .annotate(distance=CosineDistance("embedding", query_embedding))
+    #         .order_by("distance")
+    #     )
 
-    if vector_results:
-        return Response(SongSerializer(vector_results, many=True).data)
+    # if vector_results:
+    #     return Response(SongSerializer(vector_results, many=True).data)
 
     # Fallback: traditional query search
     from django.db.models import Q
