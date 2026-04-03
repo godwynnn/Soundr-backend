@@ -137,7 +137,7 @@ def search_songs(request):
         vector_results = list(
             Song.objects
             .annotate(distance=CosineDistance("embedding", query_embedding))
-            .order_by("distance")[:5]
+            .order_by("distance")
         )
 
     if vector_results:
