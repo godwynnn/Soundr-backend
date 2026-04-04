@@ -7,6 +7,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/listener/', include('listener.urls')),
     path('api/creator/', include('creator.urls')),
+    path('api/payment/', include('payment.urls')),
     path('api/auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/signup/', signup_view, name='auth-signup'),
     path('api/auth/logout/', logout_view, name='auth-logout'),

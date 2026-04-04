@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     'my_custom_auth.apps.AuthAppConfig',
     'listener',
     'creator',
+    'payment',
 ]
 
 AUTHENTICATION_BACKENDS = (
@@ -171,3 +172,4 @@ SIMPLE_JWT = {
 
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+PAYSTACK_SECRET_KEY = os.environ.get('PAYSTACK_SECRET_KEY')
