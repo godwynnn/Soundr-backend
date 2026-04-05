@@ -1,13 +1,24 @@
 import uuid
+import hmac
+import hashlib
+import json
+import time
+import requests
 from django.db import transaction
+from django.conf import settings
+from django.db.models import F
+from django.http import StreamingHttpResponse, HttpResponse, JsonResponse
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from .models import Wallet, Transaction
-from .serializers import InitializePaymentSerializer, WalletSerializer
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework import status
-import requests
-from django.conf import settings
+from rest_framework.views import APIView
+
+from .models import Wallet, Transaction
+from .serializers import InitializePaymentSerializer, WalletSerializer, TransactionSerializer
+from payment.PaystackUtils import handle_paystack, handle_successful_payment, verify_paystack_payment
+from payment.FlutterwaveUtils import handle_flutterwave
+from payment.StripeUtils import handle_stripe
 
 PAYSTACK_URL = "https://api.paystack.co/transaction/initialize"
 
@@ -21,14 +32,13 @@ def get_user_wallet(request):
         
         # Get recent transactions associated with the user
         transactions = Transaction.objects.filter(wallet=wallet).order_by('-created_at')[:20]
-        # We can serialize them manually or with TransactionSerializer
-        from .serializers import TransactionSerializer
         tx_serializer = TransactionSerializer(transactions, many=True)
         data['transactions'] = tx_serializer.data
 
         return Response(data, status=status.HTTP_200_OK)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -47,16 +57,10 @@ def initialize_payment(request):
     try:
         with transaction.atomic():
             wallet, created = Wallet.objects.get_or_create(user=request.user)
-            # Atomicity: Lock the wallet to prevent concurrent initialize requests for the same user
             wallet = Wallet.objects.select_for_update().get(id=wallet.id)
-
-            # Prevent initializing duplicate exact same transactions rapidly (optional, but good practice)
-            # Check if there corresponds a pending one locally created within the last few minutes.
-            # But creating a new pending transaction is safer, so we just log it.
 
             reference = f"tx-{uuid.uuid4().hex}"
 
-            # Log standard Transaction object before calling third parties!
             tx = Transaction.objects.create(
                 user=request.user,
                 wallet=wallet,
@@ -69,7 +73,6 @@ def initialize_payment(request):
                 description=f"Wallet Funding via {payment_method.capitalize()}"
             )
 
-            # Call specific payment gateways
             if payment_method == "paystack":
                 return handle_paystack(email, amount, reference)
             elif payment_method == "flutterwave":
@@ -83,62 +86,100 @@ def initialize_payment(request):
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def handle_paystack(email, amount, reference):
-    headers = {
-        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
-        "Content-Type": "application/json",
-    }
+class PaystackWebhookAPIView(APIView):
+    permission_classes = [AllowAny]
 
-    data = {
-        "email": email,
-        "amount": int(float(amount) * 100),  # amount in kobo
-        "reference": reference,
-        "channels": ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer"]
-    }
+    def post(self, request, *args, **kwargs):
+        paystack_signature = request.headers.get("x-paystack-signature")
 
-    response = requests.post(PAYSTACK_URL, json=data, headers=headers)
-    
-    if response.status_code == 200:
-        return Response(response.json(), status=status.HTTP_200_OK)
-    else:
-        return Response(response.json(), status=response.status_code)
+        computed_signature = hmac.new(
+            settings.PAYSTACK_SECRET_KEY.encode(),
+            request.body,
+            hashlib.sha512
+        ).hexdigest()
 
+        if computed_signature != paystack_signature:
+            return Response(
+                {"error": "Invalid signature"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-def handle_flutterwave(email, amount, reference):
-    url = "https://api.flutterwave.com/v3/payments"
+        event = request.data.get("event")
 
-    headers = {
-        "Authorization": f"Bearer {settings.FLUTTERWAVE_SECRET_KEY}",
-        "Content-Type": "application/json",
-    }
+        if event == "charge.success":
+            handle_successful_payment(request.data)
 
-    data = {
-        "tx_ref": reference,
-        "amount": str(amount),
-        "currency": "NGN",
-        "redirect_url": "https://yourdomain.com/payment/callback/",
-        "customer": {
-            "email": email,
-        },
-    }
-
-    response = requests.post(url, json=data, headers=headers)
-    return Response(response.json(), status=response.status_code)
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
 
-def handle_stripe(email, amount, reference):
-    url = "https://api.stripe.com/v1/payment_intents"
+class VerifyPaystackTransactionAPIView(APIView):
+    permission_classes = [IsAuthenticated]
 
-    headers = {
-        "Authorization": f"Bearer {settings.STRIPE_SECRET_KEY}",
-    }
+    def get(self, request, *args, **kwargs):
+        reference = request.GET.get('reference')
+        if not reference:
+            return Response({"error": "Reference required"}, status=status.HTTP_400_BAD_REQUEST)
 
-    data = {
-        "amount": int(float(amount) * 100),
-        "currency": "usd",
-        "receipt_email": email,
-        "metadata[reference]": reference
-    }
+        # Use the utility for verification
+        status_msg = verify_paystack_payment(reference)
+        
+        if status_msg == "success":
+            return Response(
+                {
+                    "message": "Payment verified and wallet credited",
+                    "status": "success"
+                },
+                status=status.HTTP_200_OK
+            )
+        else:
+            return Response(
+                {"error": "Verification failed or payment pending", "status": status_msg},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-    response = requests.post(url, data=data, headers=headers)
-    return Response(response.json(), status=response.status_code)
+
+def stream_transaction_status(request):
+    """
+    Server-Sent Events (SSE) endpoint to stream transaction status updates.
+    Standard Django view (not DRF) to avoid 406 Not Acceptable errors with EventSource.
+    """
+    reference = request.GET.get('reference')
+    if not reference:
+        return HttpResponse("Reference required", status=400)
+
+    def event_stream():
+        print(f"Starting SSE stream for reference: {reference}")
+        for i in range(120): # Max 4 minutes
+            try:
+                # Every 3 iterations (approx 6 seconds), we do an active verify call
+                if i % 3 == 0:
+                    status_msg = verify_paystack_payment(reference)
+                    print(f"SSE Active Verify ({reference}): {status_msg}")
+                    if status_msg == "success":
+                        yield f"data: success\n\n"
+                        return
+                    elif status_msg in ["failed", "reversed"]:
+                        yield f"data: {status_msg}\n\n"
+                        return
+
+                # Otherwise check local DB
+                txn = Transaction.objects.filter(reference=reference).first()
+                if txn and txn.status == "success":
+                    yield f"data: success\n\n"
+                    return
+                elif txn and txn.status in ["failed", "reversed"]:
+                    yield f"data: {txn.status}\n\n"
+                    return
+                
+                # Keep the connection alive
+                yield f"data: pending\n\n"
+                time.sleep(2)
+            except Exception as e:
+                print(f"SSE Error ({reference}): {e}")
+                yield "data: error\n\n"
+                return
+
+    response = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
+    response['Cache-Control'] = 'no-cache'
+    response['X-Accel-Buffering'] = 'no'
+    return response
