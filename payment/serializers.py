@@ -22,7 +22,27 @@ class WalletSerializer(serializers.ModelSerializer):
     class Meta:
         model = Wallet
         fields = [
-            "id", "user", "balance", "currency", "is_active", 
-            "created_at", "updated_at"
+            "id", "user", "balance", "currency", "hype_points", "support_points",
+            "is_active", "created_at", "updated_at"
         ]
-        read_only_fields = ["id", "user", "balance", "currency", "created_at", "updated_at"]
+        read_only_fields = ["id", "user", "balance", "currency", "hype_points", "support_points", "created_at", "updated_at"]
+
+
+class PurchasePointsSerializer(serializers.Serializer):
+    points = serializers.IntegerField(min_value=1)
+    point_type = serializers.ChoiceField(choices=["support", "hype"])
+
+    def validate(self, data):
+        points = data.get('points')
+        point_type = data.get('point_type')
+        
+        # 1 Support Point = 200, 1 Hype Point = 100
+        # User specified 200 for support and 100 for hype.
+        rate = 200 if point_type == "support" else 100
+        total_cost = points * rate
+        
+        if total_cost < 1000:
+            raise serializers.ValidationError(f"Minimum purchase amount is ₦1,000.00. Current total for {points} {point_type} points is ₦{total_cost}.")
+            
+        data['total_cost'] = total_cost
+        return data

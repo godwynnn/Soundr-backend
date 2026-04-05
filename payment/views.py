@@ -15,7 +15,11 @@ from rest_framework import status
 from rest_framework.views import APIView
 
 from .models import Wallet, Transaction
-from .serializers import InitializePaymentSerializer, WalletSerializer, TransactionSerializer
+from .serializers import (
+    InitializePaymentSerializer, WalletSerializer, TransactionSerializer, 
+    PurchasePointsSerializer
+)
+from creator.models import Song
 from payment.PaystackUtils import handle_paystack, handle_successful_payment, verify_paystack_payment
 from payment.FlutterwaveUtils import handle_flutterwave
 from payment.StripeUtils import handle_stripe
@@ -183,3 +187,156 @@ def stream_transaction_status(request):
     response['Cache-Control'] = 'no-cache'
     response['X-Accel-Buffering'] = 'no'
     return response
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def purchase_points(request):
+    """
+    Purchase Support or Hype points using the user's existing wallet balance.
+    Minimum purchase value: ₦1,000.
+    """
+    serializer = PurchasePointsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    points = serializer.validated_data['points']
+    point_type = serializer.validated_data['point_type']
+    total_cost = serializer.validated_data['total_cost']
+
+    try:
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.balance < total_cost:
+                return Response(
+                    {"error": f"Insufficient balance. You need ₦{total_cost:,.2f} but only have ₦{wallet.balance:,.2f}."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Deduct balance
+            wallet.balance = F('balance') - total_cost
+            
+            # Add points
+            if point_type == "support":
+                wallet.support_points = F('support_points') + points
+                tx_type = "purchase_support"
+                desc = f"Purchased {points} Support Points"
+            else:
+                wallet.hype_points = F('hype_points') + points
+                tx_type = "purchase_hype"
+                desc = f"Purchased {points} Hype Points"
+
+            wallet.save()
+            wallet.refresh_from_db()
+
+            # Create Transaction Record
+            Transaction.objects.create(
+                user=request.user,
+                wallet=wallet,
+                amount=total_cost,
+                currency="NGN",
+                transaction_type=tx_type,
+                payment_method="wallet",
+                status="success",
+                reference=f"buy-{uuid.uuid4().hex[:12]}",
+                description=desc
+            )
+
+            # Prepare full response with updated wallet
+            w_serializer = WalletSerializer(wallet)
+            data = w_serializer.data
+            
+            # Include recent transactions
+            transactions = Transaction.objects.filter(wallet=wallet).order_by('-created_at')[:20]
+            tx_serializer = TransactionSerializer(transactions, many=True)
+            data['transactions'] = tx_serializer.data
+
+            return Response({
+                "message": f"Successfully purchased {points} {point_type} points.",
+                "wallet": data
+            }, status=status.HTTP_200_OK)
+
+    except Wallet.DoesNotExist:
+        return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def support_song(request, song_id):
+    """
+    Transfer 1 support point from the current user to the song creator.
+    """
+    try:
+        from django.db import transaction as db_transaction
+        import uuid
+        
+        song = Song.objects.get(id=song_id)
+        creator = song.uploaded_by
+        
+        if not creator:
+            return Response({"error": "This song has no associated creator."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if creator == request.user:
+            return Response({"error": "You cannot support your own tracks."}, status=status.HTTP_400_BAD_REQUEST)
+
+        with db_transaction.atomic():
+            # Get sender wallet
+            sender_wallet = Wallet.objects.select_for_update().get(user=request.user)
+            
+            if sender_wallet.support_points < 1:
+                return Response({"error": "Insufficient support points. Please top up your wallet."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get receiver wallet (creator)
+            receiver_wallet, created = Wallet.objects.select_for_update().get_or_create(
+                user=creator,
+                defaults={'currency': 'NGN'}
+            )
+            
+            # Perform transfer
+            # Note: We need to use integer values, not F expressions if we want to return the result immediately easily, 
+            # or just reload them.
+            sender_wallet.support_points -= 1
+            receiver_wallet.support_points += 1
+            
+            sender_wallet.save()
+            receiver_wallet.save()
+            
+            # Create Transaction for Sender
+            Transaction.objects.create(
+                user=request.user,
+                wallet=sender_wallet,
+                amount=0,
+                currency="NGN",
+                transaction_type="withdrawal",
+                payment_method="wallet",
+                status="success",
+                reference=f"sup-out-{uuid.uuid4().hex[:12]}",
+                description=f"Sent 1 Support Point to {creator.username} for track: {song.title}"
+            )
+            
+            # Create Transaction for Receiver
+            Transaction.objects.create(
+                user=creator,
+                wallet=receiver_wallet,
+                amount=0,
+                currency="NGN",
+                transaction_type="deposit",
+                payment_method="wallet",
+                status="success",
+                reference=f"sup-in-{uuid.uuid4().hex[:12]}",
+                description=f"Received 1 Support Point from {request.user.username} for track: {song.title}"
+            )
+
+            return Response({
+                "message": f"Successfully supported {song.title}! 1 point has been sent to {creator.username}.",
+                "remaining_points": sender_wallet.support_points
+            }, status=status.HTTP_200_OK)
+
+    except Song.DoesNotExist:
+        return Response({"error": "Song not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Wallet.DoesNotExist:
+        return Response({"error": "Your wallet was not found. Please contact support."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

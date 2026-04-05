@@ -333,11 +333,54 @@ def toggle_song_like(request, song_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def hype_song(request, song_id):
-    """Incrementing hype count for a song."""
+    """
+    Increment hype count for a song by consuming 1 Hype Point from the user's wallet.
+    """
+    from payment.models import Wallet, Transaction
+    from django.db import transaction as db_transaction
+    import uuid
+
     song = get_object_or_404(Song, id=song_id)
-    song.hype_count += 1
-    song.save()
     
-    return Response({
-        "hype_count": song.hype_count
-    })
+    if song.uploaded_by == request.user:
+        return Response({"error": "You cannot hype your own tracks."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        with db_transaction.atomic():
+            # Get user wallet
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+            
+            if wallet.hype_points < 1:
+                return Response({"error": "Insufficient Hype Points. Please visit the Earnings Dashboard to buy more."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Deduct point
+            wallet.hype_points -= 1
+            wallet.save()
+            
+            # Increment song hype
+            song.hype_count += 1
+            song.save()
+            
+            # Record Transaction
+            Transaction.objects.create(
+                user=request.user,
+                wallet=wallet,
+                amount=0,
+                currency="NGN",
+                transaction_type="hype_spend",
+                payment_method="wallet",
+                status="success",
+                reference=f"hype-{uuid.uuid4().hex[:12]}",
+                description=f"Used 1 Hype Point on {song.title} by {song.artist}"
+            )
+            
+            return Response({
+                "message": f"Successfully hyped {song.title}!",
+                "hype_count": song.hype_count,
+                "remaining_hype_points": wallet.hype_points
+            }, status=status.HTTP_200_OK)
+
+    except Wallet.DoesNotExist:
+        return Response({"error": "Wallet not found. Please visit the Earnings page to initialize your wallet."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

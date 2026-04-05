@@ -15,6 +15,9 @@ class Wallet(models.Model):
     balance = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     currency = models.CharField(max_length=10, default="NGN")
 
+    hype_points = models.IntegerField(default=0)
+    support_points = models.IntegerField(default=0)
+
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -33,6 +36,9 @@ class Transaction(models.Model):
         ("withdrawal", "Withdrawal"),
         ("subscription", "Subscription Payment"),
         ("stream_payout", "Stream Payout"),
+        ("purchase_support", "Support Point Purchase"),
+        ("purchase_hype", "Hype Point Purchase"),
+        ("hype_spend", "Hype Point Spending"),
         ("refund", "Refund"),
     ]
 
