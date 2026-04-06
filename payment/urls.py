@@ -10,6 +10,7 @@ urlpatterns = [
     path("paystack/status/", VerifyPaystackTransactionAPIView.as_view()),
     path("stream-status/", stream_transaction_status),
     path('purchase-points/', views.purchase_points, name='purchase-points'),
+    path('convert-points/', views.convert_points_to_naira, name='convert-points'),
     path('support-song/<int:song_id>/', views.support_song, name='support-song'),
     path("paystack/webhook/", PaystackWebhookAPIView.as_view()),
 ]

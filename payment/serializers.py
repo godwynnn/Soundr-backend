@@ -46,3 +46,10 @@ class PurchasePointsSerializer(serializers.Serializer):
             
         data['total_cost'] = total_cost
         return data
+
+class ConvertPointsSerializer(serializers.Serializer):
+    points = serializers.IntegerField(min_value=1)
+    
+    def validate_points(self, value):
+        # We'll check the wallet balance in the view, but let's ensure it's a valid integer
+        return value

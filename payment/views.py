@@ -17,7 +17,7 @@ from rest_framework.views import APIView
 from .models import Wallet, Transaction
 from .serializers import (
     InitializePaymentSerializer, WalletSerializer, TransactionSerializer, 
-    PurchasePointsSerializer
+    PurchasePointsSerializer, ConvertPointsSerializer
 )
 from creator.models import Song
 from payment.PaystackUtils import handle_paystack, handle_successful_payment, verify_paystack_payment
@@ -338,5 +338,67 @@ def support_song(request, song_id):
         return Response({"error": "Song not found"}, status=status.HTTP_404_NOT_FOUND)
     except Wallet.DoesNotExist:
         return Response({"error": "Your wallet was not found. Please contact support."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def convert_points_to_naira(request):
+    """
+    Convert earned support points into Naira balance in the wallet.
+    Rate: 1 Support Point = ₦200.00.
+    """
+    serializer = ConvertPointsSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    points = serializer.validated_data['points']
+    naira_equivalent = points * 200
+
+    try:
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=request.user)
+
+            if wallet.support_points < points:
+                return Response(
+                    {"error": f"Insufficient support points. You have {wallet.support_points} but tried to convert {points}."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Perform conversion
+            wallet.support_points = F('support_points') - points
+            wallet.balance = F('balance') + naira_equivalent
+            
+            wallet.save()
+            wallet.refresh_from_db()
+
+            # Create Transaction Record
+            Transaction.objects.create(
+                user=request.user,
+                wallet=wallet,
+                amount=naira_equivalent,
+                currency="NGN",
+                transaction_type="deposit",
+                payment_method="wallet",
+                status="success",
+                reference=f"conv-{uuid.uuid4().hex[:12]}",
+                description=f"Converted {points} Support Points to Naira"
+            )
+
+            # Return updated wallet data
+            w_serializer = WalletSerializer(wallet)
+            data = w_serializer.data
+            
+            # Include recent transactions
+            transactions = Transaction.objects.filter(wallet=wallet).order_by('-created_at')[:20]
+            tx_serializer = TransactionSerializer(transactions, many=True)
+            data['transactions'] = tx_serializer.data
+
+            return Response({
+                "message": f"Successfully converted {points} points to ₦{naira_equivalent:,.2f}.",
+                "wallet": data
+            }, status=status.HTTP_200_OK)
+
+    except Wallet.DoesNotExist:
+        return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
