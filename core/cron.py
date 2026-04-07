@@ -33,7 +33,7 @@ def start_scheduler():
     if env == 'prod':
         scheduler = BackgroundScheduler()
         # Run every 10 minutes to keep the service healthy
-        scheduler.add_job(ping_keep_alive, 'interval', minutes=1)
+        scheduler.add_job(ping_keep_alive, 'interval', minutes=10)
         scheduler.start()
         print("[Cron] Background scheduler started (Production mode).")
     else:
