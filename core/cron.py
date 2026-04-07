@@ -14,7 +14,7 @@ def ping_keep_alive():
         backend_url = "http://127.0.0.1:8000"
     
     url = f"{backend_url.rstrip('/')}/api/listener/keep-alive/"
-    
+    print(url)
     try:
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
