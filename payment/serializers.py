@@ -3,7 +3,7 @@ from rest_framework import serializers
 from .models import Wallet, Transaction
 
 class InitializePaymentSerializer(serializers.Serializer):
-    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=1.00)
+    amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=1)
     payment_method = serializers.ChoiceField(choices=["paystack", "flutterwave", "stripe"])
 
 
