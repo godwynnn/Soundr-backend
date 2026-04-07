@@ -411,3 +411,14 @@ def toggle_follow_artist(request, artist_id):
         "message": message,
         "artist_id": artist_id
     }, status=status.HTTP_200_OK)
+
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def keep_alive(request):
+    """
+    Simple endpoint to keep the backend live.
+    """
+    print("keep soundr live")
+    return Response({"status": "keep soundr live"}, status=status.HTTP_200_OK)

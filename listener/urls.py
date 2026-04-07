@@ -2,7 +2,7 @@ from .views import (
     landing_page_data, song_detail_data, increment_play, 
     search_songs, list_songs_by_type, join_stream_token, 
     list_public_podcasts, podcast_detail_data, toggle_podcast_like, add_podcast_comment,
-    user_library_all, toggle_song_like, hype_song, toggle_follow_artist
+    user_library_all, toggle_song_like, hype_song, toggle_follow_artist, keep_alive
 )
 from django.urls import path
 urlpatterns = [
@@ -20,4 +20,5 @@ urlpatterns = [
     path('songs/<int:song_id>/like/', toggle_song_like, name='song-like'),
     path('songs/<int:song_id>/hype/', hype_song, name='song-hype'),
     path('artists/<int:artist_id>/follow/', toggle_follow_artist, name='follow-artist'),
+    path('keep-alive/', keep_alive, name='keep-alive'),
 ]
