@@ -9,6 +9,7 @@ def ping_keep_alive():
     """
     backend_url = os.getenv('BACKEND_URL')
     if not backend_url:
+        
         # Fallback to a common local URL for testing, but in prod it MUST be set
         backend_url = "http://127.0.0.1:8000"
     
