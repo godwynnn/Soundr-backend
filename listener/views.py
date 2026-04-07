@@ -384,3 +384,30 @@ def hype_song(request, song_id):
         return Response({"error": "Wallet not found. Please visit the Earnings page to initialize your wallet."}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def toggle_follow_artist(request, artist_id):
+    """ Toggles follow/unfollow for an artist. """
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    artist = get_object_or_404(User, id=artist_id)
+    
+    if artist == request.user:
+        return Response({"error": "You cannot follow yourself."}, status=status.HTTP_400_BAD_REQUEST)
+        
+    follow_qs = FollowedArtist.objects.filter(user=request.user, artist=artist)
+    
+    if follow_qs.exists():
+        follow_qs.delete()
+        followed = False
+        message = f"Unfollowed {artist.username}"
+    else:
+        FollowedArtist.objects.create(user=request.user, artist=artist)
+        followed = True
+        message = f"Following {artist.username}"
+        
+    return Response({
+        "followed": followed,
+        "message": message,
+        "artist_id": artist_id
+    }, status=status.HTTP_200_OK)

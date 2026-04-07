@@ -6,6 +6,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
+from core.cloudinary_utils import upload_to_cloudinary
 
 User = get_user_model()
 
@@ -157,3 +158,37 @@ def logout_view(request):
         return Response({'message': 'Successfully logged out.'}, status=status.HTTP_200_OK)
     except Exception:
         return Response({'message': 'Logged out.'}, status=status.HTTP_200_OK)
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def profile_view(request):
+    """
+    GET: Return serialized user data.
+    PATCH: Update user details (display_name, bio, avatar).
+    """
+    user = request.user
+    
+    if request.method == 'PATCH':
+        display_name = request.data.get('display_name')
+        bio = request.data.get('bio')
+        avatar_file = request.FILES.get('avatar')
+        
+        if display_name is not None:
+            user.display_name = display_name
+        if bio is not None:
+            user.bio = bio
+            
+        if avatar_file:
+            try:
+                upload_res = upload_to_cloudinary(avatar_file, folder='avatars')
+                user.avatar_url = upload_res.get('url')
+            except Exception as e:
+                return Response({'error': f'Avatar upload failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+        user.save()
+        serializer = UserSerializer(user)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+        
+    # GET request
+    serializer = UserSerializer(user)
+    return Response(serializer.data, status=status.HTTP_200_OK)

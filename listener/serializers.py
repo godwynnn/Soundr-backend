@@ -5,6 +5,7 @@ from creator.models import Song, Podcast, PodcastComment, PodcastLike
 class SongSerializer(serializers.ModelSerializer):
     is_liked = serializers.SerializerMethodField()
     likes_count = serializers.SerializerMethodField()
+    is_following_artist = serializers.SerializerMethodField()
 
     class Meta:
         model = Song
@@ -12,7 +13,7 @@ class SongSerializer(serializers.ModelSerializer):
             'id', 'title', 'artist', 'genre', 'tags', 'duration', 
             'cover_image_url', 'audio_file_url', 'uploaded_by', 
             'is_featured', 'is_trending', 'total_play_count', 'hype_count', 
-            'created_at', 'is_liked', 'likes_count'
+            'created_at', 'is_liked', 'likes_count', 'is_following_artist'
         ]
 
     def get_is_liked(self, obj):
@@ -23,6 +24,13 @@ class SongSerializer(serializers.ModelSerializer):
 
     def get_likes_count(self, obj):
         return obj.likes.count()
+
+    def get_is_following_artist(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            # uploaded_by is the user ID of the artist
+            return FollowedArtist.objects.filter(user=request.user, artist=obj.uploaded_by).exists()
+        return False
 
 class PodcastCommentSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
