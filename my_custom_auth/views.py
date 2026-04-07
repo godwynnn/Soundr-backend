@@ -41,7 +41,8 @@ import requests as django_requests
 from django.conf import settings
 from django.contrib.auth import login
 from social_django.utils import psa
-from .serializers import UserSerializer
+from django.shortcuts import get_object_or_404
+from .serializers import UserSerializer, PublicUserSerializer
 # For Google ID token verification
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
@@ -191,4 +192,15 @@ def profile_view(request):
         
     # GET request
     serializer = UserSerializer(user)
+    return Response(serializer.data, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def public_profile_view(request, user_id):
+    """
+    Returns public profile data for any user by their ID.
+    Excludes sensitive information like email and wallet data.
+    """
+    user = get_object_or_404(User, id=user_id)
+    serializer = PublicUserSerializer(user, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
