@@ -7,6 +7,16 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 from core.cloudinary_utils import upload_to_cloudinary
+import requests as django_requests
+from django.conf import settings
+from django.contrib.auth import login
+from social_django.utils import psa
+from django.shortcuts import get_object_or_404
+from .serializers import UserSerializer, PublicUserSerializer
+# For Google ID token verification
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_auth_requests
+
 
 User = get_user_model()
 
@@ -37,15 +47,6 @@ def signup_view(request):
         'user': {'email': user.email, 'username': user.username, 'id': user.id}
     }, status=status.HTTP_201_CREATED)
 
-import requests as django_requests
-from django.conf import settings
-from django.contrib.auth import login
-from social_django.utils import psa
-from django.shortcuts import get_object_or_404
-from .serializers import UserSerializer, PublicUserSerializer
-# For Google ID token verification
-from google.oauth2 import id_token as google_id_token
-from google.auth.transport import requests as google_auth_requests
 
 def get_tokens_for_user(user):
     refresh = RefreshToken.for_user(user)
