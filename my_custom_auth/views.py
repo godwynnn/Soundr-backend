@@ -9,7 +9,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from core.cloudinary_utils import upload_to_cloudinary
 import requests as django_requests
 from django.conf import settings
-from django.contrib.auth import login
+from django.contrib.auth import login, authenticate
 from social_django.utils import psa
 from django.shortcuts import get_object_or_404
 from .serializers import UserSerializer, PublicUserSerializer
@@ -22,6 +22,44 @@ User = get_user_model()
 
 class MyTokenObtainPairView(TokenObtainPairView):
     serializer_class = MyTokenObtainPairSerializer
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def login_view(request):
+    email = request.data.get('email')
+    password = request.data.get('password')
+
+    if not email or not password:
+        return Response({'error': 'Please provide both email and password.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user = User.objects.get(email=email)
+    
+    # Check if user exists
+    if not user:
+        return Response({'error': 'Invalid Email or password'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    # Check if user is active
+    if not user.is_active:
+        return Response({'error': 'Account deactivated'}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    # Check if user has a usable password (signed up via social but never set one)
+    if not user.has_usable_password():
+        return Response({'error': 'This email is associated with a social account. Please use Google Login.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+  
+    # Authenticate
+    # user = authenticate(request,username=user.email, password=password)
+    
+    if user.check_password(password):
+        tokens = get_tokens_for_user(user)
+        return Response({
+            'status': 'success',
+            'access': str(tokens['access']),
+            'refresh': str(tokens['refresh']),
+            'user': UserSerializer(user).data
+        }, status=status.HTTP_200_OK)
+    else:
+        return Response({'error': 'Invalid Email or password'}, status=status.HTTP_401_UNAUTHORIZED)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
