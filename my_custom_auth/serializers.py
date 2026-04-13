@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from .models import Waitlist
 
 User = get_user_model()
 
@@ -43,3 +44,8 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['username'] = user.username
         token['email'] = user.email
         return token
+
+class WaitlistSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Waitlist
+        fields = ['id', 'email', 'created_at']

@@ -12,7 +12,8 @@ from django.conf import settings
 from django.contrib.auth import login, authenticate
 from social_django.utils import psa
 from django.shortcuts import get_object_or_404
-from .serializers import UserSerializer, PublicUserSerializer
+from .serializers import UserSerializer, PublicUserSerializer, WaitlistSerializer
+from .models import Waitlist
 # For Google ID token verification
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_auth_requests
@@ -243,3 +244,12 @@ def public_profile_view(request, user_id):
     user = get_object_or_404(User, id=user_id)
     serializer = PublicUserSerializer(user, context={'request': request})
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def join_waitlist(request):
+    serializer = WaitlistSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
