@@ -14,13 +14,14 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 
-from .models import Wallet, Transaction
+from .models import Wallet, Transaction, BankAccount, Beneficiary
 from .serializers import (
     InitializePaymentSerializer, WalletSerializer, TransactionSerializer, 
-    PurchasePointsSerializer, ConvertPointsSerializer
+    PurchasePointsSerializer, ConvertPointsSerializer,
+    BankAccountSerializer, BeneficiarySerializer
 )
 from creator.models import Song
-from payment.PaystackUtils import handle_paystack, handle_successful_payment, verify_paystack_payment
+from payment.PaystackUtils import handle_paystack, handle_successful_payment, verify_paystack_payment,get_banks_paystack
 from payment.FlutterwaveUtils import handle_flutterwave
 from payment.StripeUtils import handle_stripe
 
@@ -402,3 +403,147 @@ def convert_points_to_naira(request):
         return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_banks(request):
+    data, status_code = get_banks_paystack()
+    return Response(data, status=status_code)
+
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def resolve_bank_account(request):
+    """
+    Resolve a bank account number to get the account name.
+    """
+    account_number = request.data.get("account_number")
+    bank_code = request.data.get("bank_code")
+
+    if not account_number or not bank_code:
+        return Response(
+            {"error": "Account number and bank code are required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        response = requests.get(
+            f"https://api.paystack.co/bank/resolve?account_number={account_number}&bank_code={bank_code}",
+            headers={
+                "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"
+            }
+        )
+
+        if response.status_code != 200:
+            return Response(
+                {"error": "Unable to resolve account number"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+        data = response.json()
+        return Response(data, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_transfer_recipient(request):
+    """
+    Create a transfer recipient on Paystack and save the bank account/beneficiary locally.
+    """
+    url = "https://api.paystack.co/transferrecipient"
+
+    headers = {
+        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    # Data from frontend
+    account_number = request.data.get("account_number")
+    bank_code = request.data.get("bank_code")
+    bank_name = request.data.get("bank_name", "Unknown Bank") # Passed from frontend for DB
+    name = request.data.get("name") # Account Name or Nickname
+
+    if not all([account_number, bank_code, name]):
+        return Response(
+            {"error": "Account number, bank code, and name are required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    payload = {
+        "type": "nuban",
+        "name": name,
+        "account_number": account_number,
+        "bank_code": bank_code,
+        "currency": "NGN"
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        res_data = response.json()
+
+        if response.status_code in [200, 201] and res_data.get("status"):
+            recipient_data = res_data.get("data")
+            recipient_code = recipient_data.get("recipient_code")
+
+            with transaction.atomic():
+                # Get or create the BankAccount
+                bank_account, created = BankAccount.objects.get_or_create(
+                    recipient_code=recipient_code,
+                    defaults={
+                        "user": request.user,
+                        "account_name": name,
+                        "account_number": account_number,
+                        "bank_code": bank_code,
+                        "bank_name": bank_name,
+                        "currency": "NGN"
+                    }
+                )
+
+                # Create or update the Beneficiary record
+                beneficiary, b_created = Beneficiary.objects.get_or_create(
+                    user=request.user,
+                    bank_account=bank_account,
+                    defaults={
+                        "name": name
+                    }
+                )
+                if not b_created:
+                    from django.utils import timezone
+                    beneficiary.last_used = timezone.now()
+                    beneficiary.save()
+
+            # Return success with the saved objects data
+            return Response({
+                "message": "Recipient created and saved successfully",
+                "recipient_code": recipient_code,
+                "bank_account": BankAccountSerializer(bank_account).data,
+                "beneficiary": BeneficiarySerializer(beneficiary).data
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(res_data, status=response.status_code)
+
+    except requests.exceptions.RequestException as e:
+        return Response(
+            {"error": "Failed to create transfer recipient", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    except Exception as e:
+        return Response(
+            {"error": "An internal error occurred", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def list_beneficiaries(request):
+    """
+    List saved beneficiaries for the authenticated user.
+    """
+    beneficiaries = Beneficiary.objects.filter(user=request.user, is_active=True).order_by('-last_used')
+    serializer = BeneficiarySerializer(beneficiaries, many=True)
+    return Response(serializer.data, status=status.HTTP_200_OK)

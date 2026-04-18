@@ -102,3 +102,50 @@ class Transaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_type} - {self.amount} - {self.status}"
+
+
+class BankAccount(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="bank_accounts"
+    )
+    account_name = models.CharField(max_length=255)
+    account_number = models.CharField(max_length=20)
+    bank_code = models.CharField(max_length=10)
+    bank_name = models.CharField(max_length=255)
+    recipient_code = models.CharField(max_length=100, unique=True)
+    currency = models.CharField(max_length=10, default="NGN")
+    
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.account_name} ({self.bank_name})"
+
+
+class Beneficiary(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="beneficiaries"
+    )
+    bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.CASCADE,
+        related_name="beneficiaries"
+    )
+    name = models.CharField(max_length=255, blank=True, null=True) # Nickname/Label
+    is_active = models.BooleanField(default=True)
+    last_used = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name_plural = "Beneficiaries"
+        unique_together = ('user', 'bank_account')
+
+    def __str__(self):
+        return f"{self.name or self.bank_account.account_name} - {self.user.username}"

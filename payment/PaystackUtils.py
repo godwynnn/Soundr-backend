@@ -101,3 +101,28 @@ def verify_paystack_payment(reference):
     except Exception as e:
         print(f"Verification error for {reference}: {e}")
         return "error"
+
+
+
+
+
+# @api_view(['GET'])
+def get_banks_paystack(currency='NGN'):
+    url = f"https://api.paystack.co/bank?currency={currency}"
+
+    headers = {
+        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        return data,response.status_code
+
+        # return Response(data, status=response.status_code)
+
+    except requests.exceptions.RequestException as e:
+        return Response(
+            {"error": "Unable to fetch banks", "details": str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

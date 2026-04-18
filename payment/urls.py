@@ -13,4 +13,8 @@ urlpatterns = [
     path('convert-points/', views.convert_points_to_naira, name='convert-points'),
     path('support-song/<int:song_id>/', views.support_song, name='support-song'),
     path("paystack/webhook/", PaystackWebhookAPIView.as_view()),
+    path("resolve-account/", views.resolve_bank_account, name='resolve-account'),
+    path('banks/', views.get_banks, name='get_banks'),
+    path('create-transfer-recipient/', views.create_transfer_recipient, name='create-transfer-recipient'),
+    path('beneficiaries/', views.list_beneficiaries, name='list-beneficiaries'),
 ]

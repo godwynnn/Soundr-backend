@@ -1,6 +1,6 @@
 # serializers.py
 from rest_framework import serializers
-from .models import Wallet, Transaction
+from .models import Wallet, Transaction, BankAccount, Beneficiary
 
 class InitializePaymentSerializer(serializers.Serializer):
     amount = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=1)
@@ -53,3 +53,17 @@ class ConvertPointsSerializer(serializers.Serializer):
     def validate_points(self, value):
         # We'll check the wallet balance in the view, but let's ensure it's a valid integer
         return value
+class BankAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BankAccount
+        fields = '__all__'
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+
+class BeneficiarySerializer(serializers.ModelSerializer):
+    bank_account_details = BankAccountSerializer(source='bank_account', read_only=True)
+
+    class Meta:
+        model = Beneficiary
+        fields = '__all__'
+        read_only_fields = ['id', 'user', 'created_at', 'last_used']
