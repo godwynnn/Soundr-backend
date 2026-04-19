@@ -437,6 +437,7 @@ def resolve_bank_account(request):
                 "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}"
             }
         )
+        print(response.json())
 
         if response.status_code != 200:
             return Response(
@@ -461,7 +462,7 @@ def create_transfer_recipient(request):
         "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
         "Content-Type": "application/json"
     }
-
+    print(request.data)
     # Data from frontend
     account_number = request.data.get("account_number")
     bank_code = request.data.get("bank_code")
@@ -485,6 +486,7 @@ def create_transfer_recipient(request):
     try:
         response = requests.post(url, json=payload, headers=headers)
         res_data = response.json()
+        print(res_data)
 
         if response.status_code in [200, 201] and res_data.get("status"):
             recipient_data = res_data.get("data")

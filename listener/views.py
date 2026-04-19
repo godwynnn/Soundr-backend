@@ -416,6 +416,44 @@ def toggle_follow_artist(request, artist_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+def trending_hype_chart(request):
+    """
+    Returns songs ordered by hype_count, optionally filtered by genre.
+    """
+    genre = request.query_params.get('genre', 'All')
+    
+    songs = Song.objects.all().order_by('-hype_count')
+    
+    if genre and genre != 'All':
+        # Simple case-insensitive match for genre
+        songs = songs.filter(genre__iexact=genre)
+    
+    # Return top 50 ranked songs
+    songs = songs[:50]
+    
+    return Response(SongSerializer(songs, many=True, context={'request': request}).data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def trending_hype_chart(request):
+    """
+    Returns songs ordered by hype_count, optionally filtered by genre.
+    """
+    genre = request.query_params.get('genre', 'All')
+    
+    songs = Song.objects.all().order_by('-hype_count')
+    
+    if genre and genre != 'All':
+        songs = songs.filter(genre__iexact=genre)
+    
+    songs = songs[:50]
+    
+    return Response(SongSerializer(songs, many=True, context={'request': request}).data)
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def keep_alive(request):
     """
     Simple endpoint to keep the backend live.
