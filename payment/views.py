@@ -549,3 +549,122 @@ def list_beneficiaries(request):
     beneficiaries = Beneficiary.objects.filter(user=request.user, is_active=True).order_by('-last_used')
     serializer = BeneficiarySerializer(beneficiaries, many=True)
     return Response(serializer.data, status=status.HTTP_200_OK)
+
+from decimal import Decimal
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def initiate_transfer(request):
+    """
+    Initiate a transfer (withdrawal) from user wallet to a saved beneficiary using Paystack.
+    """
+    user = request.user
+    amount = request.data.get("amount")
+    recipient_code = request.data.get("recipient_code")
+    reason = request.data.get("reason", "Wallet Withdrawal")
+
+    if not amount or not recipient_code:
+        return Response(
+            {"error": "Amount and recipient_code are required"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    try:
+        amount = Decimal(str(amount))
+        if amount <= 0:
+            return Response({"error": "Invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
+    except ValueError:
+        return Response({"error": "Invalid amount format"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 1. Deduct from wallet and create transaction securely
+    try:
+        with transaction.atomic():
+            wallet = Wallet.objects.select_for_update().get(user=user)
+            
+            # Rule 3: User can only withdraw below their wallet balance
+            if wallet.balance < amount:
+                return Response(
+                    {"error": "Insufficient wallet balance"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            tx_id = uuid.uuid4()
+            # Rule 2: Reference assigned to the initiated transfer should be the id of the transaction instance
+            reference = str(tx_id)
+
+            # Rule 1: A transaction record with transaction_type of 'withdrawal' must be created
+            tx = Transaction.objects.create(
+                id=tx_id,
+                user=user,
+                wallet=wallet,
+                amount=amount,
+                currency="NGN",
+                transaction_type="withdrawal",
+                payment_method="paystack",
+                status="pending",
+                reference=reference,
+                description=reason
+            )
+
+            wallet.balance = F('balance') - amount
+            wallet.save()
+
+    except Wallet.DoesNotExist:
+        return Response({"error": "Wallet not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # 2. Make the API Call to Paystack
+    url = "https://api.paystack.co/transfer"
+    headers = {
+        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "source": "balance", 
+        "amount": int(amount * 100), 
+        "recipient": recipient_code, 
+        "reason": reason,
+        "reference": reference
+    }
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        res_data = response.json()
+
+        if response.status_code in [200, 201] and res_data.get("status"):
+            # Transfer created, might be pending or success
+            paystack_data = res_data.get("data", {})
+            tx.external_reference = paystack_data.get("transfer_code")
+            tx.status = paystack_data.get("status", "pending")
+            tx.save()
+            return Response({
+                "message": "Transfer initiated successfully",
+                "data": paystack_data
+            }, status=status.HTTP_200_OK)
+        else:
+            # Paystack explicitly rejected the transfer (e.g. invalid recipient, insufficient paystack balance)
+            # Revert the transaction and wallet balance
+            with transaction.atomic():
+                tx = Transaction.objects.select_for_update().get(id=tx_id)
+                tx.status = "failed"
+                tx.save()
+
+                wallet = Wallet.objects.select_for_update().get(user=user)
+                wallet.balance = F('balance') + amount
+                wallet.save()
+
+            return Response({
+                "error": "Failed to initiate transfer with provider",
+                "details": res_data.get("message")
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    except requests.exceptions.RequestException as e:
+        # Request failed (timeout or network error). 
+        # Do NOT revert automatically, because Paystack MIGHT have received the command.
+        # Record should stay pending safely.
+        return Response({
+            "message": "Transfer initiated, awaiting confirmation due to network instability.",
+            "reference": reference
+        }, status=status.HTTP_200_OK)
