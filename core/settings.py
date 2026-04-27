@@ -173,3 +173,20 @@ SIMPLE_JWT = {
 
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 PAYSTACK_SECRET_KEY = os.environ.get('PAYSTACK_SECRET_KEY')
+
+
+import sentry_sdk
+from sentry_sdk.integrations.django import DjangoIntegration
+
+sentry_sdk.init(
+    dsn="https://3e85b06a90404c591d22808fad563e4c@o4511292163948544.ingest.de.sentry.io/4511292172730448",
+    # Add data like request headers and IP for users,
+    integrations=[DjangoIntegration()],
+    # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
+    send_default_pii=True,
+    # THIS is what enables slow API tracking
+    traces_sample_rate=1.0,  # 1.0 = capture 100% (reduce in prod)
+
+    # Optional but useful
+    profiles_sample_rate=1.0,
+)

@@ -253,3 +253,9 @@ def join_waitlist(request):
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+def trigger_error(request):
+    division_by_zero = 1 / 1
+
+    return Response({'value':division_by_zero})

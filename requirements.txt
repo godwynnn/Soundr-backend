@@ -56,3 +56,4 @@ livekit-protocol>=1.0,<2.0
 
 cloudinary>=1.40,<2.0
 apscheduler>=3.10,<4.0
+sentry-sdk>=1.40,<2.0   

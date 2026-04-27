@@ -1,7 +1,11 @@
 from django.contrib import admin
 from django.urls import path, include
-from my_custom_auth.views import signup_view, logout_view, VerifySocialLogin, profile_view, public_profile_view, login_view, join_waitlist
+from my_custom_auth.views import signup_view, logout_view, VerifySocialLogin, profile_view, public_profile_view, login_view, join_waitlist, trigger_error
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
+
+
+
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -18,4 +22,5 @@ urlpatterns = [
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/auth/waitlist/', join_waitlist, name='waitlist'),
     path('auth/', include('drf_social_oauth2.urls', namespace='drf')),
+    # path('debug/', trigger_error),
 ]
