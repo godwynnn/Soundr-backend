@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     'listener',
     'creator',
     'payment',
+    'kyc',
 ]
 
 AUTHENTICATION_BACKENDS = (

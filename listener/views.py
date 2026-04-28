@@ -3,8 +3,8 @@ from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
-from creator.models import Song, Stream, Podcast, PodcastLike, PodcastComment
-from .serializers import SongSerializer, PodcastSerializer, PodcastCommentSerializer
+from creator.models import Song, Stream, Podcast, PodcastLike, PodcastComment, SongComment
+from .serializers import SongSerializer, PodcastSerializer, PodcastCommentSerializer, SongCommentSerializer
 from livekit import api
 import os
 from listener.models import FollowedArtist,Playlist,UserLibrary
@@ -54,30 +54,12 @@ def song_detail_data(request, song_id):
     # Simple logic for 'up next': different songs in the same genre
     up_next = Song.objects.filter(genre=song.genre).exclude(id=song.id)[:5]
     
-    # Mock comments for now unless a Comment model is requested
-    comments = [
-        {
-            "id": 1, 
-            "user": "Jay Design",
-            "avatar_text": "JD",
-            "time_ago": "2 hours ago",
-            "text": f"That bass drop in {song.title} literally changed my life.!",
-            "likes": 24
-        },
-        {
-            "id": 2, 
-            "user": "NeonRider",
-            "avatar_text": "NR",
-            "time_ago": "1 day ago",
-            "text": "Getting major Blade Runner vibes from this artwork.",
-            "likes": 8
-        }
-    ]
+    comments = song.comments.all().order_by('-created_at')
 
     return Response({
         **song_data,
         "up_next": SongSerializer(up_next, many=True).data,
-        "comments": comments,
+        "comments": SongCommentSerializer(comments, many=True).data,
     })
 
 @api_view(['POST'])
@@ -269,6 +251,24 @@ def add_podcast_comment(request, podcast_id):
     )
     
     return Response(PodcastCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def add_song_comment(request, song_id):
+    """Posting a comment on a song."""
+    song = get_object_or_404(Song, id=song_id)
+    text = request.data.get('text')
+    
+    if not text:
+        return Response({"error": "Comment text is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+    comment = SongComment.objects.create(
+        user=request.user,
+        song=song,
+        text=text
+    )
+    
+    return Response(SongCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

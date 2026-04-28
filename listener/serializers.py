@@ -1,6 +1,13 @@
 from rest_framework import serializers
 from .models import UserLibrary, Playlist, FollowedArtist
-from creator.models import Song, Podcast, PodcastComment, PodcastLike
+from creator.models import Song, Podcast, PodcastComment, PodcastLike, SongComment
+
+class SongCommentSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    
+    class Meta:
+        model = SongComment
+        fields = ['id', 'username', 'text', 'created_at']
 
 class SongSerializer(serializers.ModelSerializer):
     is_liked = serializers.SerializerMethodField()
